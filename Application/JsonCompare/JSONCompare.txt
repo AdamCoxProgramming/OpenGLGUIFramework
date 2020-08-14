@@ -1,0 +1,191 @@
+﻿
+var SAME = "SAME"
+var MODIFED = "MODIFIED"
+var ADDED = "ADDED"
+var REMOVED = "REMOVED"
+var NOKEY = "NO_KEY"
+
+function compareObjects(leftObj, rightObj,workingPath){
+
+    var propertyComparisons = []
+
+    for (var name in rightObj) { // itterating through the right objects properties and comparing with the left, we find the ADDED, SAME and MODIFED properties
+        if (rightObj.hasOwnProperty(name)) {        
+
+            var rightProperty =  rightObj[name];
+            var leftProperty =  leftObj[name];
+            var type = getType(rightProperty);
+
+            var newWorkingPath = workingPath; // Used by array and object compare, not primitive
+            if(newWorkingPath.length == 0)newWorkingPath += name
+            else newWorkingPath += "." + name;            
+
+            if(leftProperty == null){ // If its in the right but not the left, its been added
+                propertyComparisons.push(createItemComparison(name,ADDED,null,rightProperty));
+            }
+            else if(type == "ARRAY"){
+                var arrayCompareResult = compareArrays(leftProperty,rightProperty,newWorkingPath);
+                propertyComparisons.push(createItemComparison(name,"N/A",null,rightProperty,arrayCompareResult));
+            }
+            else if(type == "OBJECT")
+            {
+                var objectCompareResult = compareObjects(leftProperty,rightProperty,newWorkingPath);
+                propertyComparisons.push(createItemComparison(name,"N/A",null,rightProperty,objectCompareResult));
+            }
+            else if(type == "PRIMITIVE"){
+                if(leftProperty !== rightProperty) propertyComparisons.push(createItemComparison(name,MODIFED,leftProperty,rightProperty));
+                else propertyComparisons.push(createItemComparison(name,SAME,leftProperty,rightProperty));
+            }
+
+        }
+    }
+
+    for (var name in leftObj) { // itterating through the left objects properties and comparing with the right, we find the REMOVED properties
+        if (leftObj.hasOwnProperty(name)) {
+
+            if(rightObj[name] == null )
+                propertyComparisons.push(createItemComparison(name,REMOVED,leftObj[name],null));
+        }
+    }
+
+    return propertyComparisons;
+}
+
+function createItemComparison(name,comparison,lValue,rValue,compareRes){
+    var type;
+    if(lValue == null) type = getType(rValue)
+    else type = getType(lValue)
+
+    var res = {
+        "name" : name,
+        "type":type,
+        "comparison" : comparison,
+        "comparisonObject" : compareRes,
+        "lValue" : lValue,
+        "rValue": rValue
+    }
+
+	if(res.rValue == null) res.rValue = "null"
+	if(res.lValue == null) res.lValue = "null"
+	
+	/*
+	if(type != "PRIMITIVE" && comparison == "N/A"){
+		delete res.lValue
+		delete res.rValue
+	}
+	*/
+
+    if(type != "PRIMITIVE")
+	{
+		if(lValue != null)res.lValue = JSON.stringify(lValue,null,2)
+		if(rValue != null)res.rValue = JSON.stringify(rValue,null,2)		
+		if(compareRes == null) compareRes = []
+        res["comparisonObject"] = compareRes
+	}
+
+    return res;
+}
+
+function getType(object){
+    if(Array.isArray(object)) return "ARRAY"
+    else if(typeof object == 'object') return "OBJECT"
+    else return "PRIMITIVE"
+}
+
+function compareArrays(leftArr,rightArr,workingPath){    
+    
+    if(!Array.isArray(leftArr) || !Array.isArray(rightArr)) throw new Error("not an array");
+    
+    var key = getKeyPathForWorkingPath(workingPath);
+    if( key == null) {
+        var arrayComparison = []
+        for(var i = 0; i < rightArr.length; i++){
+            arrayComparison.push(createItemComparison(i,NOKEY,null,rightArr[i]))
+        }
+        return arrayComparison;
+    }
+
+    var attrKey = key.split('.').pop()
+    return compareArraysUsingKey(leftArr,rightArr,workingPath,attrKey);
+}
+
+function compareArraysUsingKey(arr1,arr2,workingPath,attrKey){ 
+    var arrayLeftItemsByKey = getArrayItemsByKey(arr1,attrKey)
+    var arrayRightItemsByKey = getArrayItemsByKey(arr2,attrKey)
+
+    var arrayComparison = []
+
+    for (var key in arrayRightItemsByKey) { // itterating through the right array and comparing with the left, we find the ADDED, SAME and MODIFED properties
+        if (arrayRightItemsByKey.hasOwnProperty(key)) {        
+
+            var leftValue = arrayLeftItemsByKey[key];
+            var rightValue = arrayRightItemsByKey[key];
+
+            var newWorkingPath = workingPath; // used by array and object compare, not primitive
+            if(newWorkingPath.length == 0)newWorkingPath += key
+            else newWorkingPath += "." + key;
+            
+            if(leftValue == null) arrayComparison.push(createItemComparison(key,ADDED,null,rightValue))
+            else {
+                var objectCompareResult = compareObjects(leftValue,rightValue,newWorkingPath);
+                arrayComparison.push(createItemComparison(key,"N/A",null,rightValue,objectCompareResult))
+            }
+        }
+    }
+    
+
+    for(var key in arrayLeftItemsByKey) { // itterating through the left array and comparing with the right, we find the removed properties
+        if (arrayLeftItemsByKey.hasOwnProperty(key)) {
+
+            var leftValue = arrayLeftItemsByKey[key];
+            var rightValue = arrayRightItemsByKey[key];
+
+            if(rightValue == null) {
+                arrayComparison.push(createItemComparison(key,REMOVED,null,leftValue))   
+            }
+
+        }
+    }  
+
+    for(var i = 0; i < arr2.length; i++){ // add items with no key
+        if(getType(arr2[i])=="PRIMITIVE"){
+            arrayComparison.push(createItemComparison(arr2[i],NOKEY,null,arr2[i]))        
+        }
+		else if(arr2[i][attrKey] == null){
+            arrayComparison.push(createItemComparison("No Key",NOKEY,null,arr2[i]))        
+        }
+    }    
+
+    return arrayComparison
+}
+
+function getArrayItemsByKey(array,key){
+    var itemsByKey = {}
+
+    for(var i = 0 ; i < array.length; i ++){
+        if(array[i][key] != null){
+            itemsByKey[array[i][key]]  = array[i];
+        }
+    }
+
+    return itemsByKey;
+}
+
+function getKeyPathForWorkingPath(workingPath){
+    namesInWorkingPath = workingPath.split('.')    
+    for(var keyIndex = 0; keyIndex < keys.length; keyIndex ++){      
+
+        var key =  keys[keyIndex] + "";
+        var keyParts = key.split('.')
+        for(var indexInKey = 0; indexInKey < keyParts.length; indexInKey ++){            
+            if(indexInKey == namesInWorkingPath.length && indexInKey ==  keyParts.length -1) 
+				return key;
+			
+            if(keyParts[indexInKey] !== '*' && namesInWorkingPath[indexInKey] !== keyParts[indexInKey])
+                break               
+        }
+    }
+    return null;
+}
+
+JSON.stringify( compareObjects(obj1,obj2,""),null,2);
